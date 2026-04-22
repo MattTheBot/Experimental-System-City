@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>System City v0.3</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <span id="mode-lbl">terrain</span>
+  <span class="sep"></span>
+  <button id="btn-terrain"  onclick="activateTool('terrain')">Terrain [T]</button>
+  <button id="btn-road"     onclick="activateTool('road')">Road [R]</button>
+  <button id="btn-bulldoze" onclick="activateTool('bulldoze')">Bulldoze [X]</button>
+  <span id="ver">System City v0.3</span>
+</div>
+
+<!-- Terrain panel -->
+<div id="tp" class="panel">
+  <h4>Terrain editor</h4>
+  <div class="row">
+    <div class="lbl"><span>Radius</span><span id="br-v">12</span></div>
+    <input type="range" id="br" min="2" max="60" value="12" step="1"
+      oninput="brushRadius=+this.value; document.getElementById('br-v').textContent=this.value; rebuildCircle()">
+  </div>
+  <div class="row">
+    <div class="lbl"><span>Strength</span><span id="bs-v">0.50</span></div>
+    <input type="range" id="bs" min="0.05" max="3" step="0.05" value="0.5"
+      oninput="brushStr=+this.value; document.getElementById('bs-v').textContent=(+this.value).toFixed(2)">
+  </div>
+  <div class="row">
+    <div class="lbl"><span>Brush mode</span></div>
+    <div class="bgrid" id="bmodes">
+      <button class="active" onclick="setBrush('raise',this)">Raise</button>
+      <button onclick="setBrush('lower',this)">Lower</button>
+      <button onclick="setBrush('flatten',this)">Flatten</button>
+      <button onclick="setBrush('smooth',this)">Smooth</button>
+    </div>
+  </div>
+  <div class="layer-box">
+    <div class="lh">Flatten target height</div>
+    <div id="layer-val">not set</div>
+    <div class="lhint">R-click terrain to sample a height.<br>Snaps to nearest 0.5 m layer.</div>
+  </div>
+  <button id="exp-btn" onclick="exportHM()">Export heightmap PNG</button>
+  <div class="hint">Hold <b>Shift</b> + drag to sculpt.<br>Release Shift to orbit camera.</div>
+</div>
+
+<!-- Road panel -->
+<div id="rp" class="panel">
+  <h4>Road tool</h4>
+  <div class="hint" style="line-height:1.9; color:#444">
+    <b>L-click</b> — place start<br>
+    <b>L-click</b> — set curve handle<br>
+    <b>R-click</b> — finish road<br>
+    <span style="font-size:10px;color:#2a2a3a">
+      R after 1st click = straight road<br>
+      Roads snap to 8m grid (XZ only).<br>
+      Any angle is allowed.
+    </span>
+  </div>
+</div>
+
+<div id="info">Select a tool</div>
+
+<!--
+  Script loading order matters — each file uses globals from the ones before it.
+  No Node.js, no bundler. GitHub Pages serves these files as-is.
+
+  Load order:
+    1. babylon.js    — 3D engine (CDN)
+    2. core.js       — engine, scene, camera, lights, pickTerrain
+    3. snap.js       — GRID, snapXZ, terrainYAt, nearNode
+    4. terrain.js    — terrain mesh, brush, colours, export, brushCircle, snapDot
+    5. roads.js      — roads[], rs object, buildRoad
+    6. tools.js      — TOOLS registry, all tool definitions, pointer + keyboard routing
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babylonjs/6.44.0/babylon.js"
+        onerror="document.getElementById('info').textContent='Babylon.js failed to load — check connection'">
+</script>
+<script>
+  // Halt early if CDN blocked — prevents cascade of undefined errors
+  if (typeof BABYLON === "undefined") {
+    throw new Error("Babylon.js not available");
+  }
+</script>
+<script src="src/core.js"></script>
+<script src="src/snap.js"></script>
+<script src="src/terrain.js"></script>
+<script src="src/roads.js"></script>
+<script src="src/tools.js"></script>
+<script>
+  // Start render loop and boot into terrain mode
+  engine.runRenderLoop(function() { scene.render(); });
+  window.addEventListener("resize", function() { engine.resize(); });
+  activateTool("terrain");
+</script>
+</body>
+</html>
