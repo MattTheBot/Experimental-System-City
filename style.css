@@ -1,0 +1,104 @@
+* { margin:0; padding:0; box-sizing:border-box; }
+body { overflow:hidden; background:#1a1a2e; font-family:system-ui,sans-serif; }
+#c { width:100vw; height:100vh; display:block; }
+
+/* ── HUD ──────────────────────────────────────────── */
+#hud {
+  position:absolute; bottom:0; left:0; right:0; height:56px;
+  background:rgba(6,6,14,0.92); border-top:1px solid rgba(255,255,255,0.06);
+  display:flex; align-items:center; gap:7px; padding:0 14px;
+}
+.sep { width:1px; height:26px; background:rgba(255,255,255,0.09); margin:0 2px; }
+#hud button {
+  background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.13);
+  color:#bbb; padding:5px 12px; border-radius:5px; cursor:pointer; font-size:12px;
+}
+#hud button:hover     { background:rgba(255,255,255,0.13); }
+#hud button.active    { background:#1a4fa8; border-color:#4a8fd5; color:#fff; }
+#hud button.active-rd { background:#5a1414; border-color:#a03030; color:#fcc; }
+#mode-lbl { font-size:12px; color:#444; min-width:70px; }
+#ver      { margin-left:auto; font-size:11px; color:#222; }
+
+/* ── Side panels ──────────────────────────────────── */
+.panel {
+  display:none; position:absolute; top:13px;
+  background:rgba(8,8,18,0.94); border:1px solid rgba(255,255,255,0.08);
+  border-radius:8px; padding:14px; color:#ccc; font-size:13px;
+}
+.panel h4 { margin:0 0 10px; font-size:13px; font-weight:500; color:#eee; }
+#tp { right:13px; width:222px; }
+#rp { left:13px;  width:200px; }
+
+.row { margin-bottom:10px; }
+.lbl { display:flex; justify-content:space-between; font-size:11px; color:#666; margin-bottom:3px; }
+.panel input[type=range] { width:100%; accent-color:#4a8fd5; cursor:pointer; }
+
+.bgrid { display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-top:5px; }
+.bgrid button {
+  background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.10);
+  color:#888; padding:5px 0; border-radius:4px; cursor:pointer; font-size:11px;
+}
+.bgrid button:hover  { background:rgba(255,255,255,0.1); }
+.bgrid button.active { background:#1a4fa8; border-color:#4a8fd5; color:#fff; }
+
+/* target height inputs */
+.target-row {
+  display:flex; gap:6px; align-items:center; margin-top:4px;
+}
+.target-row input[type=number] {
+  background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.12);
+  color:#ccc; padding:3px 7px; border-radius:4px; font-size:11px; width:68px;
+}
+.target-row label { font-size:11px; color:#555; flex:1; }
+.target-row button {
+  background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1);
+  color:#777; padding:3px 6px; border-radius:4px; cursor:pointer; font-size:10px;
+}
+.target-row button:hover { background:rgba(255,255,255,0.1); color:#aaa; }
+
+.layer-box {
+  margin-top:10px; padding:8px 10px;
+  background:rgba(255,255,255,0.04); border-radius:4px;
+  border:1px solid rgba(255,255,255,0.07);
+}
+.layer-box .lh   { font-size:11px; color:#555; margin-bottom:3px; }
+#layer-val        { color:#7fffc4; font-weight:500; font-size:13px; }
+.layer-box .lhint { font-size:10px; color:#2d2d3d; margin-top:4px; line-height:1.4; }
+
+#exp-btn {
+  width:100%; margin-top:10px; padding:7px; background:#0e2a18;
+  border:1px solid #1e5a30; color:#5fcf8a; border-radius:5px;
+  cursor:pointer; font-size:12px;
+}
+#exp-btn:hover { background:#163d24; }
+
+/* road panel specifics */
+.road-stat {
+  font-size:11px; color:#555; margin-bottom:8px;
+  display:flex; justify-content:space-between;
+}
+#road-len { color:#7fc8ff; font-weight:500; }
+
+.upload-row {
+  margin-top:10px;
+}
+.upload-row label {
+  display:block; font-size:11px; color:#555; margin-bottom:4px;
+}
+.upload-row input[type=file] {
+  font-size:11px; color:#888; width:100%;
+}
+#model-status {
+  font-size:10px; color:#3a6a3a; margin-top:4px; line-height:1.4;
+}
+
+.hint { font-size:11px; color:#2a2a3a; margin-top:8px; line-height:1.7; }
+.hint b { color:#444; }
+
+/* ── Info bar ─────────────────────────────────────── */
+#info {
+  position:absolute; top:13px; left:50%; transform:translateX(-50%);
+  background:rgba(8,8,18,0.85); border:1px solid rgba(255,255,255,0.07);
+  border-radius:6px; padding:5px 14px; font-size:12px; color:#777;
+  pointer-events:none; white-space:nowrap;
+}
