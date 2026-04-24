@@ -1,15 +1,15 @@
 // ─────────────────────────────────────────────────────
-//  snap.js  —  length-based road snapping + soft angle snap
+//  snap.js  —  snap node lookup + length snap + soft angle snap
 //
-//  No XZ grid for road placement.
-//  Roads snap by LENGTH only (whole multiples of UNIT metres).
-//  Angle is free; soft snap nudges toward nice angles when close.
+//  snapNodes[] is declared in roads.js and populated when
+//  roads are built. snap.js only reads it — never writes.
 // ─────────────────────────────────────────────────────
 
-var UNIT           = 8;                    // metres per snap unit
-var SNAP_THRESHOLD = 6 * Math.PI / 180;   // 6° soft-snap window
+var UNIT           = 8;                    // 1 road unit = 8 metres
+var SNAP_THRESHOLD = 6 * Math.PI / 180;   // 6° soft-angle snap window
+var NODE_SNAP_DIST = UNIT * 0.6;          // within this → lock to snap node
 
-// Downward ray to get terrain Y at any world XZ.
+// ── Terrain height at any world XZ ──────────────────
 function terrainYAt(x, z) {
   var ray = new BABYLON.Ray(
     new BABYLON.Vector3(x, 500, z),
@@ -22,10 +22,38 @@ function terrainYAt(x, z) {
   return (hit && hit.hit) ? hit.pickedPoint.y : 0;
 }
 
-// Given start A and raw cursor world position, returns snapped endpoint:
-//   - Direction: free, soft-nudged toward nice angles
-//   - Distance: nearest whole UNIT (min 1 unit)
-//   - Y: terrain height at the snapped XZ point
+// ── Nearest snap node within threshold ──────────────
+// Returns the snap node object, or null.
+function nearestSnapNode(pos, threshold) {
+  if (typeof snapNodes === "undefined" || !snapNodes.length) return null;
+  var best = null, bestDist = Infinity;
+  for (var i = 0; i < snapNodes.length; i++) {
+    var d = BABYLON.Vector3.Distance(pos, snapNodes[i].position);
+    if (d < threshold && d < bestDist) {
+      bestDist = d;
+      best     = snapNodes[i];
+    }
+  }
+  return best;
+}
+
+// ── snapStart ────────────────────────────────────────
+// For placing a road's START POINT.
+// If near a snap node: lock to it (roads connect at whole-unit intervals).
+// Otherwise: free placement at cursor Y.
+function snapStart(rawCursor) {
+  var node = nearestSnapNode(rawCursor, NODE_SNAP_DIST);
+  if (node) return node.position.clone();
+  // Free placement — just use terrain height
+  rawCursor.y = terrainYAt(rawCursor.x, rawCursor.z);
+  return rawCursor.clone();
+}
+
+// ── snapLength ───────────────────────────────────────
+// For the road's END POINT (right-click to finish).
+// Direction: free, soft-nudged toward nice angles.
+// Distance from A: snapped to nearest whole UNIT.
+// Y: terrain height at snapped XZ.
 function snapLength(A, rawCursor) {
   var dx  = rawCursor.x - A.x;
   var dz  = rawCursor.z - A.z;
@@ -41,7 +69,6 @@ function snapLength(A, rawCursor) {
   var cands     = getCandidateAngles(A);
   var bestAngle = rawAngle;
   var bestDiff  = Infinity;
-
   for (var i = 0; i < cands.length; i++) {
     var diff = Math.abs(angleDelta(rawAngle, cands[i]));
     if (diff < bestDiff) { bestDiff = diff; bestAngle = cands[i]; }
@@ -51,13 +78,14 @@ function snapLength(A, rawCursor) {
     nz = Math.cos(bestAngle);
   }
 
+  // Length snap — nearest whole UNIT, min 1 unit
   var snappedLen = Math.max(UNIT, Math.round(len / UNIT) * UNIT);
   var ex = A.x + nx * snappedLen;
   var ez = A.z + nz * snappedLen;
   return new BABYLON.Vector3(ex, terrainYAt(ex, ez), ez);
 }
 
-// Returns integer unit count for HUD display
+// Integer unit count for HUD display
 function snapUnits(A, rawCursor) {
   var dx  = rawCursor.x - A.x;
   var dz  = rawCursor.z - A.z;
@@ -65,25 +93,25 @@ function snapUnits(A, rawCursor) {
   return Math.max(1, Math.round(len / UNIT));
 }
 
-// Candidate angles: road-relative if near a node, else cardinal+diagonal
+// ── Candidate snap angles ────────────────────────────
+// Road-relative (multiples of 45° from nearest connected road)
+// or cardinal if no road is nearby.
 function getCandidateAngles(fromPos) {
-  if (typeof roads !== "undefined") {
-    for (var i = 0; i < roads.length; i++) {
-      var r = roads[i];
-      if (!r.curve || r.curve.length < 2) continue;
-      var pts = r.curve;
-      if (BABYLON.Vector3.Distance(fromPos, r.C) < UNIT * 1.5) {
-        return makeAngles(Math.atan2(
-          pts[pts.length-1].x - pts[pts.length-2].x,
-          pts[pts.length-1].z - pts[pts.length-2].z
-        ));
-      }
-      if (BABYLON.Vector3.Distance(fromPos, r.A) < UNIT * 1.5) {
-        return makeAngles(Math.atan2(pts[1].x - pts[0].x, pts[1].z - pts[0].z));
+  if (typeof snapNodes !== "undefined") {
+    var node = nearestSnapNode(fromPos, UNIT * 1.5);
+    if (node && node.roadId !== undefined) {
+      var road = getRoadById(node.roadId);
+      if (road && road.curve && road.curve.length >= 2) {
+        var pts  = road.curve;
+        var idx  = node.indexAlongRoad;
+        var prev = pts[Math.max(0, idx - 1)];
+        var next = pts[Math.min(pts.length - 1, idx + 1)];
+        var tang = next.subtract(prev).normalize();
+        return makeAngles(Math.atan2(tang.x, tang.z));
       }
     }
   }
-  return makeAngles(0);
+  return makeAngles(0); // cardinal + diagonal fallback
 }
 
 function makeAngles(base) {
@@ -99,14 +127,11 @@ function angleDelta(from, to) {
   return d;
 }
 
-function nearNode(pos, threshold) {
+// Helper: get road by ID (roads[] declared in roads.js)
+function getRoadById(id) {
   if (typeof roads === "undefined") return null;
   for (var i = 0; i < roads.length; i++) {
-    var nodes = [roads[i].A, roads[i].C];
-    for (var j = 0; j < 2; j++) {
-      if (nodes[j] && BABYLON.Vector3.Distance(pos, nodes[j]) < threshold)
-        return nodes[j].clone();
-    }
+    if (roads[i].id === id) return roads[i];
   }
   return null;
 }

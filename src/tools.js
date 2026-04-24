@@ -1,15 +1,19 @@
 // ─────────────────────────────────────────────────────
 //  tools.js  —  pluggable tool system + tool registrations
 //
-//  Each tool is a plain object with lifecycle methods.
-//  Register new tools with registerTool(id, def).
-//  Key bindings declared per tool, all rebindable.
+//  Snap node visibility:
+//    In road mode, nodes within NODE_SHOW_DIST are shown.
+//    The closest node within NODE_SNAP_DIST is highlighted.
+//    All nodes are hidden when leaving road mode.
 // ─────────────────────────────────────────────────────
 
-var TOOLS      = {};
-var activeTool = null;
-var isShift    = false;
-var isSculpting = false;
+var TOOLS        = {};
+var activeTool   = null;
+var isShift      = false;
+var isSculpting  = false;
+
+// How far before nodes become visible (in metres)
+var NODE_SHOW_DIST = UNIT * 3;  // show nodes within 24m of cursor
 
 function registerTool(id, def) {
   TOOLS[id] = def;
@@ -32,7 +36,7 @@ function activateTool(id) {
   var ab = document.getElementById("btn-" + id);
   if (ab) ab.classList.add(id === "bulldoze" ? "active-rd" : "active");
 
-  // Show correct panel
+  // Show correct panel, hide others
   document.querySelectorAll(".panel").forEach(function(p) {
     p.style.display = "none";
   });
@@ -76,7 +80,8 @@ document.addEventListener("keydown", function(e) {
     return;
   }
   if (e.key === "Escape") {
-    if (rs) rs.reset();
+    if (typeof rs !== "undefined") rs.reset();
+    hideAllSnapNodes();
     activateTool("terrain");
     return;
   }
@@ -96,6 +101,74 @@ document.addEventListener("keyup", function(e) {
   }
 });
 
+// ── Snap node visibility helpers ─────────────────────
+// Called every onMove in road mode.
+// Shows nodes within NODE_SHOW_DIST, hides others.
+// Highlights the closest if within NODE_SNAP_DIST.
+
+var _lastHighlightedNode = null;
+
+var _snNormalMat  = null;  // blue — visible but not snapping
+var _snSnapMat    = null;  // bright yellow — will snap to this one
+
+function getSnNormalMat() {
+  if (_snNormalMat) return _snNormalMat;
+  _snNormalMat = new BABYLON.StandardMaterial("snnormal", scene);
+  _snNormalMat.diffuseColor  = new BABYLON.Color3(0.15, 0.75, 1.0);
+  _snNormalMat.emissiveColor = new BABYLON.Color3(0.05, 0.35, 0.55);
+  _snNormalMat.backFaceCulling = false;
+  return _snNormalMat;
+}
+
+function getSnSnapMat() {
+  if (_snSnapMat) return _snSnapMat;
+  _snSnapMat = new BABYLON.StandardMaterial("snsnap", scene);
+  _snSnapMat.diffuseColor  = new BABYLON.Color3(1.0, 0.9, 0.1);
+  _snSnapMat.emissiveColor = new BABYLON.Color3(0.6, 0.5, 0.0);
+  _snSnapMat.backFaceCulling = false;
+  return _snSnapMat;
+}
+
+function updateSnapNodeVisibility(cursorPos) {
+  if (typeof snapNodes === "undefined" || !snapNodes.length) return;
+
+  var closest     = null;
+  var closestDist = Infinity;
+
+  for (var i = 0; i < snapNodes.length; i++) {
+    var node = snapNodes[i];
+    var dist = BABYLON.Vector3.Distance(cursorPos, node.position);
+
+    if (dist < NODE_SHOW_DIST) {
+      node.mesh.isVisible = true;
+      node.mesh.material  = getSnNormalMat();
+    } else {
+      node.mesh.isVisible = false;
+    }
+
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest     = node;
+    }
+  }
+
+  // Highlight the one we'll snap to
+  if (closest && closestDist < NODE_SNAP_DIST) {
+    closest.mesh.material  = getSnSnapMat();
+    _lastHighlightedNode   = closest;
+  } else {
+    _lastHighlightedNode   = null;
+  }
+}
+
+function hideAllSnapNodes() {
+  if (typeof snapNodes === "undefined") return;
+  for (var i = 0; i < snapNodes.length; i++) {
+    snapNodes[i].mesh.isVisible = false;
+  }
+  _lastHighlightedNode = null;
+}
+
 // ═══════════════════════════════════════════════════
 //  TOOL: TERRAIN
 // ═══════════════════════════════════════════════════
@@ -104,7 +177,11 @@ registerTool("terrain", {
   panel: "tp",
   hint:  "Terrain — hold Shift + drag to sculpt  |  R-click to sample flatten height",
 
-  onActivate:   function() { if (snapDot) snapDot.isVisible = false; },
+  onActivate: function() {
+    if (snapDot) snapDot.isVisible = false;
+    hideAllSnapNodes();
+  },
+
   onDeactivate: function() {
     if (brushCircle) brushCircle.isVisible = false;
     isSculpting = false;
@@ -136,11 +213,10 @@ registerTool("terrain", {
 // ═══════════════════════════════════════════════════
 //  TOOL: ROAD
 // ═══════════════════════════════════════════════════
-// Length display updated live in onMove
 registerTool("road", {
   key:   "R",
   panel: "rp",
-  hint:  "Road — L-click start  •  L-click curve handle  •  R-click finish  (R after 1st click = straight)",
+  hint:  "Road — L-click start  •  L-click curve handle  •  R-click finish  (R after 1st = straight)",
 
   onActivate: function() {
     if (snapDot) snapDot.isVisible = true;
@@ -149,7 +225,9 @@ registerTool("road", {
   onDeactivate: function() {
     rs.reset();
     if (snapDot) snapDot.isVisible = false;
-    document.getElementById("road-len").textContent = "—";
+    hideAllSnapNodes();
+    var el = document.getElementById("road-len");
+    if (el) el.textContent = "—";
   },
 
   onMove: function(hit) {
@@ -157,22 +235,29 @@ registerTool("road", {
       if (snapDot) snapDot.isVisible = false;
       return;
     }
-    var wp  = hit.pickedPoint;
-    var end = rs.phase > 0 ? snapLength(rs.A, wp) : wp;
 
+    var wp  = hit.pickedPoint;
+
+    // Always update snap node visibility based on cursor world position
+    updateSnapNodeVisibility(wp);
+
+    // Compute snapped endpoint (length-snap from A if road in progress)
+    var end = (rs.phase > 0) ? snapLength(rs.A, wp) : snapStart(wp);
+
+    // Move snap dot to endpoint
     if (snapDot) {
       snapDot.isVisible = true;
       snapDot.position.set(end.x, end.y + 0.3, end.z);
     }
 
-    // Live length readout while placing
-    if (rs.phase === 1 || rs.phase === 2) {
+    // Live length display when a road is in progress
+    if (rs.phase >= 1) {
       var units = snapUnits(rs.A, wp);
-      document.getElementById("road-len").textContent =
-        (units * UNIT) + " m  (" + units + " units)";
+      var el    = document.getElementById("road-len");
+      if (el) el.textContent = (units * UNIT) + " m  (" + units + " units)";
     }
 
-    // Preview
+    // Update preview mesh
     if (rs.phase === 1) rs.updatePreview(rs.A, end, end);
     if (rs.phase === 2) rs.updatePreview(rs.A, rs.B, end);
   },
@@ -181,16 +266,19 @@ registerTool("road", {
     if (!hit || !hit.hit) return;
 
     if (evt.button === 2) {
+      // Right-click: finish road
+      var C = snapLength(rs.A, hit.pickedPoint);
+
       if (rs.phase === 1) {
-        var C   = snapLength(rs.A, hit.pickedPoint);
-        // Midpoint as handle = straight road
+        // Straight road: midpoint as bezier handle
         var mid = rs.A.add(C).scale(0.5);
         buildRoad(rs.A, mid, C);
         rs.reset();
+        hideAllSnapNodes();
       } else if (rs.phase === 2) {
-        var C = snapLength(rs.A, hit.pickedPoint);
         buildRoad(rs.A, rs.B, C);
         rs.reset();
+        hideAllSnapNodes();
       } else {
         rs.reset();
       }
@@ -198,19 +286,19 @@ registerTool("road", {
     }
 
     if (evt.button === 0) {
-      var sn = hit.pickedPoint;
+      var wp = hit.pickedPoint;
 
       if (rs.phase === 0) {
-        // Snap to existing node if close enough
-        rs.A     = nearNode(sn, UNIT * 0.6) || sn;
-        rs.A.y   = terrainYAt(rs.A.x, rs.A.z);
+        // Start: snap to existing node if close, else free placement
+        rs.A     = snapStart(wp);
         rs.phase = 1;
         rs.markerA = rs.placeMarker(rs.A);
       } else if (rs.phase === 1) {
-        // Free-float handle — shapes the curve, not an endpoint
-        rs.B     = sn.clone();
+        // Handle: free float (shapes the curve, not an endpoint)
+        rs.B     = wp.clone();
         rs.phase = 2;
       }
+      // phase 2: wait for right-click
     }
   },
 
@@ -224,7 +312,7 @@ registerTool("bulldoze", {
   key:   "X",
   panel: null,
   hint:  "Bulldoze — coming in v0.5",
-  onActivate:   function() {},
+  onActivate:   function() { hideAllSnapNodes(); },
   onDeactivate: function() {},
   onMove:       function() {},
   onDown:       function() {},
