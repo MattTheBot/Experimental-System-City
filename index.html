@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>System City v0.3</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- ── HUD ──────────────────────────────────────── -->
+<div id="hud">
+  <span id="mode-lbl">terrain</span>
+  <span class="sep"></span>
+  <button id="btn-terrain"  onclick="activateTool('terrain')">Terrain [T]</button>
+  <button id="btn-road"     onclick="activateTool('road')">Road [R]</button>
+  <button id="btn-bulldoze" onclick="activateTool('bulldoze')">Bulldoze [X]</button>
+  <span id="ver">System City v0.3</span>
+</div>
+
+<!-- ── Terrain panel ────────────────────────────── -->
+<div id="tp" class="panel">
+  <h4>Terrain editor</h4>
+
+  <div class="row">
+    <div class="lbl"><span>Radius</span><span id="br-v">12</span></div>
+    <input type="range" id="br" min="2" max="60" value="12" step="1"
+      oninput="brushRadius=+this.value; document.getElementById('br-v').textContent=this.value; rebuildCircle()">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>Strength</span><span id="bs-v">0.50</span></div>
+    <input type="range" id="bs" min="0.05" max="3" step="0.05" value="0.5"
+      oninput="brushStr=+this.value; document.getElementById('bs-v').textContent=(+this.value).toFixed(2)">
+  </div>
+
+  <div class="row">
+    <div class="lbl"><span>Brush mode</span></div>
+    <div class="bgrid" id="bmodes">
+      <button class="active" onclick="setBrush('raise',this)">Raise</button>
+      <button onclick="setBrush('lower',this)">Lower</button>
+      <button onclick="setBrush('flatten',this)">Flatten</button>
+      <button onclick="setBrush('smooth',this)">Smooth</button>
+    </div>
+  </div>
+
+  <!-- Raise target (ceiling) -->
+  <div class="row">
+    <div class="lbl"><span>Raise ceiling</span></div>
+    <div class="target-row">
+      <label>Stop raising at:</label>
+      <input type="number" id="raise-target" placeholder="none" step="0.5"
+        oninput="setRaiseTarget(this.value)">
+      <button onclick="document.getElementById('raise-target').value=''; setRaiseTarget('')">✕</button>
+    </div>
+  </div>
+
+  <!-- Lower target (floor) -->
+  <div class="row">
+    <div class="lbl"><span>Lower floor</span></div>
+    <div class="target-row">
+      <label>Stop lowering at:</label>
+      <input type="number" id="lower-target" placeholder="none" step="0.5"
+        oninput="setLowerTarget(this.value)">
+      <button onclick="document.getElementById('lower-target').value=''; setLowerTarget('')">✕</button>
+    </div>
+  </div>
+
+  <!-- Flatten target -->
+  <div class="layer-box">
+    <div class="lh">Flatten target height</div>
+    <div id="layer-val">not set</div>
+    <div class="lhint">R-click terrain to sample a height.<br>Snaps to nearest 0.5 m layer.</div>
+  </div>
+
+  <button id="exp-btn" onclick="exportHM()">Export heightmap PNG</button>
+  <div class="hint">Hold <b>Shift</b> + drag to sculpt.<br>Release Shift to orbit camera.</div>
+</div>
+
+<!-- ── Road panel ────────────────────────────────── -->
+<div id="rp" class="panel">
+  <h4>Road tool</h4>
+
+  <div class="road-stat">
+    <span>Length</span>
+    <span id="road-len">—</span>
+  </div>
+
+  <div class="hint" style="line-height:1.9; color:#333">
+    <b>L-click</b> — place start<br>
+    <b>L-click</b> — set curve handle<br>
+    <b>R-click</b> — finish road<br>
+    <span style="font-size:10px; color:#222">
+      R after 1st click = straight<br>
+      Length snaps to whole units (8 m each).<br>
+      Any angle allowed. Soft snap near 45°/90°.
+    </span>
+  </div>
+
+  <!-- GLB model upload -->
+  <div class="upload-row">
+    <label>Road model (GLB, 8 m long, Z-axis forward)</label>
+    <input type="file" accept=".glb" onchange="loadRoadModel(this.files[0])">
+    <div id="model-status">No model loaded — using ribbon fallback</div>
+  </div>
+</div>
+
+<div id="info">Select a tool</div>
+
+<!--
+  LOAD ORDER — each file depends only on globals from files above it.
+    1. babylon.js  — engine
+    2. core.js     — engine, scene, cam, pickTerrain
+    3. snap.js     — UNIT, terrainYAt, snapLength, nearNode (references roads[] at call-time)
+    4. terrain.js  — terrain mesh, brush, colours, rebuildCircle, snapDot
+    5. roads.js    — var roads=[], rs, buildRoad, loadRoadModel
+    6. tools.js    — TOOLS registry + all tool definitions + pointer/key routing
+-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babylonjs/6.44.0/babylon.js"
+        onerror="document.getElementById('info').textContent='Babylon.js failed to load'">
+</script>
+<script>
+  if (typeof BABYLON === "undefined") throw new Error("Babylon.js not loaded");
+</script>
+<script src="src/core.js"></script>
+<script src="src/snap.js"></script>
+<script src="src/terrain.js"></script>
+<script src="src/roads.js"></script>
+<script src="src/tools.js"></script>
+<script>
+  engine.runRenderLoop(function() { scene.render(); });
+  window.addEventListener("resize", function() { engine.resize(); });
+  activateTool("terrain");
+</script>
+</body>
+</html>
