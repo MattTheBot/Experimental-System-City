@@ -8,7 +8,6 @@
 <body>
 <canvas id="c"></canvas>
 
-<!-- ── HUD ──────────────────────────────────────── -->
 <div id="hud">
   <span id="mode-lbl">terrain</span>
   <span class="sep"></span>
@@ -18,22 +17,18 @@
   <span id="ver">System City v0.3</span>
 </div>
 
-<!-- ── Terrain panel ────────────────────────────── -->
 <div id="tp" class="panel">
   <h4>Terrain editor</h4>
-
   <div class="row">
     <div class="lbl"><span>Radius</span><span id="br-v">12</span></div>
     <input type="range" id="br" min="2" max="60" value="12" step="1"
-      oninput="brushRadius=+this.value; document.getElementById('br-v').textContent=this.value; rebuildCircle()">
+      oninput="brushRadius=+this.value;document.getElementById('br-v').textContent=this.value;rebuildCircle()">
   </div>
-
   <div class="row">
     <div class="lbl"><span>Strength</span><span id="bs-v">0.50</span></div>
     <input type="range" id="bs" min="0.05" max="3" step="0.05" value="0.5"
-      oninput="brushStr=+this.value; document.getElementById('bs-v').textContent=(+this.value).toFixed(2)">
+      oninput="brushStr=+this.value;document.getElementById('bs-v').textContent=(+this.value).toFixed(2)">
   </div>
-
   <div class="row">
     <div class="lbl"><span>Brush mode</span></div>
     <div class="bgrid" id="bmodes">
@@ -43,84 +38,85 @@
       <button onclick="setBrush('smooth',this)">Smooth</button>
     </div>
   </div>
-
-  <!-- Raise target (ceiling) -->
   <div class="row">
     <div class="lbl"><span>Raise ceiling</span></div>
     <div class="target-row">
-      <label>Stop raising at:</label>
+      <label>Stop at:</label>
       <input type="number" id="raise-target" placeholder="none" step="0.5"
         oninput="setRaiseTarget(this.value)">
-      <button onclick="document.getElementById('raise-target').value=''; setRaiseTarget('')">✕</button>
+      <button onclick="document.getElementById('raise-target').value='';setRaiseTarget('')">✕</button>
     </div>
   </div>
-
-  <!-- Lower target (floor) -->
   <div class="row">
     <div class="lbl"><span>Lower floor</span></div>
     <div class="target-row">
-      <label>Stop lowering at:</label>
+      <label>Stop at:</label>
       <input type="number" id="lower-target" placeholder="none" step="0.5"
         oninput="setLowerTarget(this.value)">
-      <button onclick="document.getElementById('lower-target').value=''; setLowerTarget('')">✕</button>
+      <button onclick="document.getElementById('lower-target').value='';setLowerTarget('')">✕</button>
     </div>
   </div>
-
-  <!-- Flatten target -->
   <div class="layer-box">
     <div class="lh">Flatten target height</div>
     <div id="layer-val">not set</div>
-    <div class="lhint">R-click terrain to sample a height.<br>Snaps to nearest 0.5 m layer.</div>
+    <div class="lhint">R-click terrain to sample.<br>Snaps to nearest 0.5 m.</div>
   </div>
-
   <button id="exp-btn" onclick="exportHM()">Export heightmap PNG</button>
-  <div class="hint">Hold <b>Shift</b> + drag to sculpt.<br>Release Shift to orbit camera.</div>
+  <div class="hint">Hold <b>Shift</b> + drag to sculpt.<br>Release Shift to orbit.</div>
 </div>
 
-<!-- ── Road panel ────────────────────────────────── -->
 <div id="rp" class="panel">
   <h4>Road tool</h4>
-
   <div class="road-stat">
-    <span>Length</span>
-    <span id="road-len">—</span>
+    <span>Length</span><span id="road-len">—</span>
   </div>
-
-  <div class="hint" style="line-height:1.9; color:#333">
-    <b>L-click</b> — place start<br>
-    <b>L-click</b> — set curve handle<br>
-    <b>R-click</b> — finish road<br>
-    <span style="font-size:10px; color:#222">
-      R after 1st click = straight<br>
-      Length snaps to whole units (8 m each).<br>
-      Any angle allowed. Soft snap near 45°/90°.
+  <div class="hint" style="color:#333;line-height:1.9">
+    <b>L-click</b> — start<br>
+    <b>L-click</b> — curve handle<br>
+    <b>R-click</b> — finish<br>
+    <span style="font-size:10px;color:#222">
+      Blue nodes = connectable endpoint<br>
+      Dim blue = mid-road node<br>
+      Yellow = will snap here<br>
+      Orange = junction (2+ roads)
     </span>
   </div>
-
-  <!-- GLB model upload -->
-  <div class="upload-row">
-    <label>Road model (GLB, 8 m long, Z-axis forward)</label>
-    <input type="file" accept=".glb" onchange="loadRoadModel(this.files[0])">
-    <div id="model-status">No model loaded — using ribbon fallback</div>
+  <div id="model-status" style="margin-top:10px;font-size:10px;color:#3a6a3a">
+    Loading road model…
   </div>
 </div>
 
 <div id="info">Select a tool</div>
 
+<div id="debug-panel">
+  <div id="debug-header">
+    <span>Debug — Shift+Alt+D to toggle</span>
+    <button onclick="toggleDebug()">✕</button>
+  </div>
+  <div id="debug-stats">—</div>
+  <div id="debug-log"></div>
+</div>
+
 <!--
-  LOAD ORDER — each file depends only on globals from files above it.
-    1. babylon.js  — engine
-    2. core.js     — engine, scene, cam, pickTerrain
-    3. snap.js     — UNIT, terrainYAt, snapLength, nearNode (references roads[] at call-time)
-    4. terrain.js  — terrain mesh, brush, colours, rebuildCircle, snapDot
-    5. roads.js    — var roads=[], rs, buildRoad, loadRoadModel
-    6. tools.js    — TOOLS registry + all tool definitions + pointer/key routing
+  CRITICAL LOAD ORDER:
+    1. babylon.js         — engine core
+    2. babylon.loaders    — GLB/glTF parser (cdn.babylonjs.com, same version as engine)
+    3. core.js            — engine, scene, camera (mid+right mouse), lights, pickTerrain
+    4. snap.js            — UNIT, terrainYAt, snapStart/End/Node/Length/Units
+    5. terrain.js         — terrain mesh, brush, colours, brushCircle, snapDot
+    6. roads.js           — roads[], snapNodes[], rs, buildRoad, GLB loaded at bottom
+    7. tools.js           — TOOLS registry, pointer/keyboard routing, debug overlay
+
+  NOTE: loaders must come from cdn.babylonjs.com (not cdnjs) to guarantee
+  version match with the engine. Mismatched versions cause GLB JSON-parse errors.
 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babylonjs/6.44.0/babylon.js"
-        onerror="document.getElementById('info').textContent='Babylon.js failed to load'">
-</script>
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 <script>
-  if (typeof BABYLON === "undefined") throw new Error("Babylon.js not loaded");
+  if (typeof BABYLON === "undefined") {
+    document.getElementById("info").textContent = "Babylon.js failed to load — check connection";
+    throw new Error("Babylon not loaded");
+  }
 </script>
 <script src="src/core.js"></script>
 <script src="src/snap.js"></script>
