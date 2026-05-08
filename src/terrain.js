@@ -1,15 +1,11 @@
 // ─────────────────────────────────────────────────────
-//  terrain.js  —  mesh, brush, slope-based texture blend
+//  terrain.js  —  mesh, brush, texture blend
 //
-//  Textures loaded from terrain-textures/ folder.
-//  Three slots: grass (flat), dirt (steep), sand (low).
-//  Falls back to vertex colours if images missing.
+//  Textures at: terrain-textures/grass.jpg
+//               terrain-textures/dirt.jpg
+//               terrain-textures/sand.jpg  (future v0.5 water)
 //
-//  TEXTURE SPEC (for terrain-textures/):
-//    grass.jpg — 512×512, seamlessly tileable green grass
-//    dirt.jpg  — 512×512, seamlessly tileable brown earth
-//    sand.jpg  — 512×512, seamlessly tileable sand/gravel
-//      (sand is unused until water system arrives in v0.5)
+//  Falls back to vertex colours if any texture 404s.
 // ─────────────────────────────────────────────────────
 
 var TS=512, TG=150;
@@ -17,90 +13,97 @@ var TS=512, TG=150;
 var terrain=BABYLON.MeshBuilder.CreateGround("terrain",
   {width:TS,height:TS,subdivisions:TG,updatable:true},scene);
 
-// ── Try shader material with textures ────────────────
-// Falls back silently to vertex-colour material if textures 404.
-var tMat=null;
-var _useShader=false;
-
-function buildShaderMaterial(){
-  tMat=new BABYLON.ShaderMaterial("terrainShader",scene,{
-    vertexSource:`
-      precision highp float;
-      attribute vec3 position;
-      attribute vec3 normal;
-      attribute vec2 uv;
-      uniform mat4 worldViewProjection;
-      varying vec3 vNorm;
-      varying vec3 vPos;
-      varying vec2 vUV;
-      void main(){
-        vNorm=normal; vPos=position;
-        vUV=uv*40.0;
-        gl_Position=worldViewProjection*vec4(position,1.0);
-      }
-    `,
-    fragmentSource:`
-      precision highp float;
-      uniform sampler2D grassTex;
-      uniform sampler2D dirtTex;
-      uniform sampler2D sandTex;
-      varying vec3 vNorm;
-      varying vec3 vPos;
-      varying vec2 vUV;
-      void main(){
-        float ny=clamp(vNorm.y,0.0,1.0);
-        float h=vPos.y;
-        float slopeT=smoothstep(0.62,0.88,ny);
-        float sandT=1.0-smoothstep(0.0,2.5,h);
-        vec4 grass=texture2D(grassTex,vUV);
-        vec4 dirt =texture2D(dirtTex, vUV);
-        vec4 sand =texture2D(sandTex, vUV);
-        vec4 col=mix(dirt,grass,slopeT);
-        col=mix(col,sand,sandT*0.85);
-        gl_FragColor=col;
-      }
-    `
-  },{
-    attributes:["position","normal","uv"],
-    uniforms:  ["worldViewProjection","grassTex","dirtTex","sandTex"]
-  });
-  tMat.backFaceCulling=false;
-
-  var grassTex=new BABYLON.Texture("terrain-textures/grass.jpg",scene);
-  var dirtTex =new BABYLON.Texture("terrain-textures/dirt.jpg", scene);
-  var sandTex =new BABYLON.Texture("terrain-textures/sand.jpg", scene);
-
-  [grassTex,dirtTex,sandTex].forEach(function(t){
-    t.wrapU=t.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE;
-  });
-
-  tMat.setTexture("grassTex",grassTex);
-  tMat.setTexture("dirtTex", dirtTex);
-  tMat.setTexture("sandTex", sandTex);
-
-  // Detect load failure — fall back to vertex colours
-  grassTex.onLoadErrorObservable.add(function(){
-    console.warn("terrain-textures/grass.jpg not found — using vertex colours");
-    buildVertexColorMaterial();
-  });
-
-  terrain.material=tMat;
-  _useShader=true;
-}
-
-function buildVertexColorMaterial(){
-  var m=new BABYLON.StandardMaterial("tmat",scene);
-  m.diffuseColor       =new BABYLON.Color3(1,1,1);
-  m.specularColor      =new BABYLON.Color3(0.03,0.03,0.03);
-  m.vertexColorsEnabled=true;
-  terrain.material=m;
+// ── Vertex colour material (always works, used as fallback) ──
+var _vcMat=null;
+function applyVertexColourMat(){
+  if(!_vcMat){
+    _vcMat=new BABYLON.StandardMaterial("tmat_vc",scene);
+    _vcMat.diffuseColor=new BABYLON.Color3(1,1,1);
+    _vcMat.specularColor=new BABYLON.Color3(0.03,0.03,0.03);
+    _vcMat.vertexColorsEnabled=true;
+  }
+  terrain.material=_vcMat;
   _useShader=false;
   updateTerrainColors();
 }
 
-// Try shader first, fall back if WebGL shader compile fails
-try { buildShaderMaterial(); }
-catch(e){ console.warn("Shader failed, using vertex colours:",e.message); buildVertexColorMaterial(); }
+var _useShader=false;
+
+// ── Texture shader material ───────────────────────────
+function applyTextureMat(){
+  try {
+    var mat=new BABYLON.ShaderMaterial("terrainShader",scene,{
+      vertexSource:`
+        precision highp float;
+        attribute vec3 position;
+        attribute vec3 normal;
+        attribute vec2 uv;
+        uniform mat4 worldViewProjection;
+        varying vec3 vNorm;
+        varying vec3 vPos;
+        varying vec2 vUV;
+        void main(){
+          vNorm=normal; vPos=position; vUV=uv*40.0;
+          gl_Position=worldViewProjection*vec4(position,1.0);
+        }
+      `,
+      fragmentSource:`
+        precision highp float;
+        uniform sampler2D grassTex;
+        uniform sampler2D dirtTex;
+        uniform sampler2D sandTex;
+        varying vec3 vNorm;
+        varying vec3 vPos;
+        varying vec2 vUV;
+        void main(){
+          float ny=clamp(vNorm.y,0.0,1.0);
+          float h=vPos.y;
+          float slopeT=smoothstep(0.62,0.88,ny);
+          float sandT=1.0-smoothstep(0.0,2.5,h);
+          vec4 grass=texture2D(grassTex,vUV);
+          vec4 dirt =texture2D(dirtTex, vUV);
+          vec4 sand =texture2D(sandTex, vUV);
+          vec4 col=mix(dirt,grass,slopeT);
+          col=mix(col,sand,sandT*0.85);
+          gl_FragColor=col;
+        }
+      `
+    },{
+      attributes:["position","normal","uv"],
+      uniforms:["worldViewProjection","grassTex","dirtTex","sandTex"]
+    });
+    mat.backFaceCulling=false;
+
+    var loaded=0, failed=false;
+    function onLoad(){ loaded++; if(loaded===3){ terrain.material=mat; _useShader=true; console.log("Terrain textures loaded"); } }
+    function onFail(url){ if(!failed){ failed=true; console.warn("Texture not found:",url,"— using vertex colours"); applyVertexColourMat(); } }
+
+    var grassTex=new BABYLON.Texture("terrain-textures/grass.jpg",scene,false,true,
+      BABYLON.Texture.TRILINEAR_SAMPLINGMODE,onLoad,function(){onFail("grass.jpg");});
+    var dirtTex =new BABYLON.Texture("terrain-textures/dirt.jpg", scene,false,true,
+      BABYLON.Texture.TRILINEAR_SAMPLINGMODE,onLoad,function(){onFail("dirt.jpg");});
+    var sandTex =new BABYLON.Texture("terrain-textures/sand.jpg", scene,false,true,
+      BABYLON.Texture.TRILINEAR_SAMPLINGMODE,onLoad,function(){onFail("sand.jpg");});
+
+    [grassTex,dirtTex,sandTex].forEach(function(t){
+      t.wrapU=t.wrapV=BABYLON.Texture.WRAP_ADDRESSMODE;
+    });
+
+    mat.setTexture("grassTex",grassTex);
+    mat.setTexture("dirtTex", dirtTex);
+    mat.setTexture("sandTex", sandTex);
+
+    // Apply vertex colours immediately as placeholder until textures load
+    applyVertexColourMat();
+    // ShaderMaterial will be applied once all three textures confirm loaded
+
+  } catch(e) {
+    console.warn("Shader failed:",e.message);
+    applyVertexColourMat();
+  }
+}
+
+applyTextureMat();
 
 // ── Vertex helpers ────────────────────────────────────
 function getV(){ return terrain.getVerticesData(BABYLON.VertexBuffer.PositionKind); }
@@ -110,7 +113,6 @@ function setV(v){
   if(!_useShader) updateTerrainColors();
 }
 
-// Vertex colour fallback (used when textures missing)
 var GRASS=[0.27,0.54,0.17], DIRT=[0.52,0.38,0.22];
 function updateTerrainColors(){
   var norms=terrain.getVerticesData(BABYLON.VertexBuffer.NormalKind);
@@ -127,13 +129,13 @@ function updateTerrainColors(){
   terrain.setVerticesData(BABYLON.VertexBuffer.ColorKind,cols,true);
 }
 
-// ── Brush state ───────────────────────────────────────
-var brushMode="raise", brushRadius=12, brushStr=0.5;
-var flattenTarget=null, raiseTarget=null, lowerTarget=null;
+// ── Brush ─────────────────────────────────────────────
+var brushMode="raise",brushRadius=12,brushStr=0.5;
+var flattenTarget=null,raiseTarget=null,lowerTarget=null;
 
 function applyBrush(hp){
-  var v=getV(),hx=hp.x,hz=hp.z,hy=hp.y;
-  var rL=(TG+1)*3,i,j,n,dx,dz,d,fo,dt,nb,sum,cnt;
+  var v=getV(),hx=hp.x,hz=hp.z,hy=hp.y,rL=(TG+1)*3;
+  var i,j,n,dx,dz,d,fo,dt,nb,sum,cnt;
   var flatY=(brushMode==="flatten"&&flattenTarget!==null)?flattenTarget:hy;
   if(brushMode==="smooth"){
     var cp=v.slice();
@@ -159,7 +161,7 @@ function applyBrush(hp){
 function sampleHeight(hp){
   flattenTarget=Math.round(hp.y/0.5)*0.5;
   var el=document.getElementById("layer-val");
-  if(el) el.textContent=flattenTarget.toFixed(1)+" m";
+  if(el)el.textContent=flattenTarget.toFixed(1)+" m";
 }
 function setRaiseTarget(val){raiseTarget=(val===""||isNaN(+val))?null:+val;}
 function setLowerTarget(val){lowerTarget=(val===""||isNaN(+val))?null:+val;}
